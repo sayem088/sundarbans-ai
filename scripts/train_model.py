@@ -20,12 +20,11 @@ with rasterio.open("data/dataset/flood_map_2023.tif") as src:
 # plt.imshow(flood, cmap='Blues')
 # plt.title("Flood Map")
 # plt.show()
-
-# Flatten arrays
+ 
 X = image.flatten().reshape(-1,1)
 y = flood.flatten()
 
-# Remove no-data
+ 
 mask = ~np.isnan(X[:,0])
 X = X[mask]
 y = y[mask]
