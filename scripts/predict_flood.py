@@ -1,3 +1,4 @@
+# predict_flood.py
 prediction = model.predict(image.flatten().reshape(-1,1))
 
 prediction_map = prediction.reshape(image.shape)

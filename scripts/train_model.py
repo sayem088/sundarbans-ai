@@ -1,45 +1,100 @@
 import rasterio
 import numpy as np
-import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+import joblib
 
-# Load Sentinel-1 raster
-with rasterio.open("data/dataset/sentinel1_vv.tif") as src:
-    image = src.read(1)
-    profile = src.profile
+# =========================
+# 1. LOAD FEATURES
+# =========================
+with rasterio.open("features_final.tif") as src:
+    img = src.read()   # shape (5, H, W)
 
-# print("Shape:", image.shape)
+print("Image shape:", img.shape)
 
-# plt.imshow(image, cmap='gray')
-# plt.title("Sentinel-1 Radar Image")
-# plt.colorbar()
-# plt.show()
+# Extract bands
+VV   = img[0]
+VH   = img[1]
+NDVI = img[2]
+NDWI = img[3]
+DEM  = img[4]
 
-with rasterio.open("data/dataset/flood_map_2023.tif") as src:
-    flood = src.read(1)
+# =========================
+# 2. LOAD LABEL
+# =========================
+with rasterio.open("flood_final.tif") as src:
+    y = src.read(1)
 
-# plt.imshow(flood, cmap='Blues')
-# plt.title("Flood Map")
-# plt.show()
- 
-X = image.flatten().reshape(-1,1)
-y = flood.flatten()
+# Fix NaN
+y = np.nan_to_num(y, nan=0)
 
- 
-mask = ~np.isnan(X[:,0])
+# =========================
+# 3. CREATE FEATURE MATRIX
+# =========================
+X = np.stack([
+    VV.flatten(),
+    VH.flatten(),
+    NDVI.flatten(),
+    NDWI.flatten(),
+    DEM.flatten()
+], axis=1)
+
+y = y.flatten()
+
+# =========================
+# 4. CLEAN DATA
+# =========================
+mask = ~np.isnan(X).any(axis=1)
 X = X[mask]
 y = y[mask]
 
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+print("Final dataset size:", X.shape)
 
+# =========================
+# 5. CLASS CHECK
+# =========================
+unique, counts = np.unique(y, return_counts=True)
+print("Class distribution:", dict(zip(unique, counts)))
+
+if len(unique) < 2:
+    raise ValueError("❌ Only one class found. Fix GEE threshold.")
+
+# =========================
+# 6. TRAIN / TEST SPLIT
+# =========================
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X, y,
+    test_size=0.2,
+    stratify=y,
+    random_state=42
 )
 
-model = RandomForestClassifier(n_estimators=100)
+# =========================
+# 7. TRAIN MODEL
+# =========================
+model = RandomForestClassifier(
+    n_estimators=300,       # stronger model
+    max_depth=12,
+    class_weight='balanced',
+    random_state=42,
+    n_jobs=-1               # use all CPU cores
+)
 
 model.fit(X_train, y_train)
 
-accuracy = model.score(X_test, y_test)
+# =========================
+# 8. EVALUATION
+# =========================
+y_pred = model.predict(X_test)
 
-print("Model Accuracy:", accuracy)
+print("\n✅ Accuracy:", model.score(X_test, y_test))
+print("\n📊 Classification Report:\n")
+print(classification_report(y_test, y_pred))
+
+# =========================
+# 9. SAVE MODEL
+# =========================
+joblib.dump(model, "flood_model_full.pkl")
+
+print("✅ Model saved as flood_model_full.pkl")

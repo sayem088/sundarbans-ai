@@ -1,77 +1,106 @@
-var geometry = /* color: #d63000 */ee.Geometry.Polygon(
-        [[[89.79313652109681, 21.867035431669226],
-          [89.79519645762025, 21.84951020574503],
-          [89.81811325144349, 21.84839489132913],
-          [89.8367385108429, 21.857237502213927],
-          [89.8352793891388, 21.873567011107905],
-          [89.82214729380189, 21.88121335843603],
-          [89.79433815073548, 21.87563793730047]]]);
+var geometry = ee.Geometry.Polygon(
+  [[[89.83719359008369, 21.854832674997542],
+    [89.83667860595283, 21.862002078377397],
+    [89.8369709679845,  21.86976105949469],
+    [89.83542601559192, 21.873425083093107],
+    [89.83714262936145, 21.880115666068402],
+    [89.83980338070423, 21.885133397410936],
+    [89.84469572994739, 21.892301278840666],
+    [89.84306494686633, 21.89190307265773],
+    [89.83740012142688, 21.890469521191132],
+    [89.82864539120227, 21.889991667499594],
+    [89.82375304195911, 21.888478453578994],
+    [89.8190323540929,  21.887682018750354],
+    [89.8168007561925,  21.886567002518184],
+    [89.8135391900304,  21.885213042517137],
+    [89.81165772158799, 21.884396889854813],
+    [89.81118565280137, 21.882803970166865],
+    [89.80989819247422, 21.879060538885728],
+    [89.80826738541826, 21.876591378939562],
+    [89.80397585099443, 21.876591378939562],
+    [89.80105760758623, 21.877228576695227],
+    [89.79848268693193, 21.874122210761517],
+    [89.79479196732744, 21.871573347186676],
+    [89.79256036942705, 21.871891957622864],
+    [89.78878381913408, 21.875794877743665],
+    [89.78698137467607, 21.875715227379562],
+    [89.78603723710283, 21.87284778466406],
+    [89.78521917761613, 21.87017272524002],
+    [89.78534792364884, 21.86846016515677],
+    [89.78345964850236, 21.865114639680517],
+    [89.78054140509416, 21.860494499433873],
+    [89.77839563788224, 21.85599370184945],
+    [89.77685068548966, 21.85256822103886],
+    [89.77547739447404, 21.848505334999153],
+    [89.77418993414689, 21.843804989382235],
+    [89.77247332037736, 21.83982152463259],
+    [89.77427576483537, 21.83743139250271],
+    [89.77547739447404, 21.837033033263058],
+    [89.78088472784806, 21.836714345072206],
+    [89.78491877020646, 21.83775007909533],
+    [89.78620623053361, 21.839662183733726],
+    [89.78577707709123, 21.841733601565963],
+    [89.78860948981095, 21.843326979473506],
+    [89.79590509833146, 21.84404399373713],
+    [89.79770754278947, 21.8452390095167],
+    [89.80268572272111, 21.845637345889497],
+    [89.81487368048478, 21.846354348562805],
+    [89.82199762762833, 21.846991681252536],
+    [89.82706163824845, 21.848027340811257],
+    [89.83444307745744, 21.85121393852879],
+    [89.83736132086564, 21.853205526013394],
+    [89.83719359008369, 21.854832674997542]]]);
 
-var studyArea = geometry;
+var studyArea = geometry.simplify(100);
+Map.centerObject(studyArea, 12);
 
-Map.centerObject(studyArea, 11);
-Map.addLayer(studyArea, {color: 'red'}, 'Study Area');
-
+// Sentinel-1
 var s1 = ee.ImageCollection('COPERNICUS/S1_GRD')
   .filterBounds(studyArea)
-  .filterDate('2023-01-01', '2024-12-31')
+  .filterDate('2023-06-01', '2023-09-30')
   .filter(ee.Filter.eq('instrumentMode', 'IW'))
-  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
-  .select('VV');
-
-// print('Sentinel-1 Collection', s1);
+  .select(['VV','VH']);
 
 var s1_db = s1.map(function(img){
-  return img.log10().multiply(10).copyProperties(img, ['system:time_start']);
+  return img.log10().multiply(10).toFloat();
 });
 
+var s1_image = s1_db.median().clip(studyArea).unmask(-20);
 
-var months = ee.List.sequence(1,12);
+// Sentinel-2
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR')
+  .filterBounds(studyArea)
+  .filterDate('2023-06-01', '2023-09-30')
+  .map(function(img){
+      var cloudMask = img.select('QA60').eq(0);
+      return img.updateMask(cloudMask);
+  });
 
-var monthly = ee.ImageCollection.fromImages(
-  months.map(function(m){
+var s2_image = s2.median().clip(studyArea).unmask(0);
 
-    var filtered = s1_db.filter(ee.Filter.calendarRange(m, m, 'month'));
+// Indices
+var ndvi = s2_image.normalizedDifference(['B8','B4']).rename('NDVI').toFloat();
+var ndwi = s2_image.normalizedDifference(['B3','B8']).rename('NDWI').toFloat();
 
-    return filtered.median()
-      .clip(studyArea)
-      .set('month', m);
+// DEM
+var dem = ee.Image('USGS/SRTMGL1_003').clip(studyArea).unmask(0).rename('DEM').toFloat();
 
-  })
-);
+// Features
+var finalImage = s1_image.addBands(ndvi).addBands(ndwi).addBands(dem).toFloat();
 
-// print('Monthly Images', monthly);
+// Label
+var flood = finalImage.select('VV').lt(-13).focal_min(1).focal_max(1).rename('flood').toFloat();
 
+// STACK
+var dataset = finalImage.addBands(flood);
 
-var flood = monthly.map(function(img){
-  var water = img.lt(-17);
-  return water.rename('water').set('month', img.get('month'));
-});
-
-var first = flood.first();
-
-Map.addLayer(first,
-  {min:0, max:1, palette:['white','blue']},
-  'Flood Map');
-
+// EXPORT
 Export.image.toDrive({
-  image: first,
-  description: 'Sundarbans_Flood_Map',
+  image: dataset,
+  description: 'FINAL_DATASET',
   folder: 'Sundarbans_AI',
-  fileNamePrefix: 'flood_map_2023',
-  region: studyArea,
-  scale: 10,
-  maxPixels: 1e13
-});
-
-var s1_image = s1_db.median().clip(studyArea);
-
-Export.image.toDrive({
-  image: s1_image,
-  description: 'Sentinel1_Backscatter',
-  folder: 'Sundarbans_AI',
-  fileNamePrefix: 'sentinel1_vv',
-  region: studyArea,
-  scale: 10,
+  fileNamePrefix: 'dataset_final',
+  scale: 30,
+  region: studyArea.centroid().buffer(2000),
   maxPixels: 1e13
 });
