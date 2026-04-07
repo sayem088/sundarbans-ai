@@ -1,18 +1,16 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
+# main.py
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import joblib
+from fastapi.staticfiles import StaticFiles
+from gee_fetch import fetch_data
+from inference import predict
 import numpy as np
-import rasterio
-from io import BytesIO
-import tempfile
-import base64
+from datetime import datetime
+import os
 import matplotlib.pyplot as plt
-import gc
 
 app = FastAPI()
 
-# ✅ CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,60 +19,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = joblib.load("./model/flood_model.pkl")
+SAVE_DIR = "saved_risk_maps"
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-
-@app.get("/")
-def home():
-    return {"message": "Sundarbans-AI API Running"}
+app.mount("/maps", StaticFiles(directory=SAVE_DIR), name="maps")
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict_api(payload: dict):
     try:
-        contents = await file.read()
+        coords = payload["coords"]
+        start = payload["start"]
+        end = payload["end"]
 
-        with rasterio.open(BytesIO(contents)) as src:
-            image = src.read(1)
-            profile = src.profile
+        vv, ndvi, ndwi = fetch_data(coords, start, end)
+        risk_map, stats = predict(vv, ndvi, ndwi)
 
-        # preprocess
-        image = np.clip(image, -30, 5)
-        X = image.flatten().reshape(-1, 1)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        img_filename = f"risk_map_{timestamp}.png"
+        img_path = os.path.join(SAVE_DIR, img_filename)
 
-        prediction = model.predict(X)
-        prediction_map = prediction.reshape(image.shape)
-
-        # ✅ SAVE TIF
-        profile.update(dtype=rasterio.uint8, count=1, compress="lzw")
-        temp_tif = tempfile.NamedTemporaryFile(delete=False, suffix=".tif")
-
-        with rasterio.open(temp_tif.name, "w", **profile) as dst:
-            dst.write(prediction_map.astype("uint8"), 1)
-
-        # ✅ CREATE PNG PREVIEW
-        fig, ax = plt.subplots(figsize=(5, 5))
-        ax.imshow(prediction_map, cmap="Blues")
-        ax.axis("off")
-
-        temp_png = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-        plt.savefig(temp_png.name, bbox_inches="tight", pad_inches=0)
+        # Save visualization
+        plt.figure(figsize=(8, 8))
+        plt.imshow(risk_map, cmap="viridis")
+        plt.colorbar(label="Flood Risk Probability")
+        plt.title(f"Risk Map - {start} to {end}")
+        plt.axis("off")
+        plt.savefig(img_path, bbox_inches="tight", dpi=200)
         plt.close()
 
-        # ✅ convert PNG → base64
-        with open(temp_png.name, "rb") as f:
-            png_bytes = f.read()
-            encoded = base64.b64encode(png_bytes).decode("utf-8")
-
-        # cleanup
-        del image, X, prediction, prediction_map
-        gc.collect()
+        # Downsample for frontend
+        downsampled = risk_map[::8, ::8]
 
         return {
-            "message": "Prediction complete",
-            "preview": encoded,  # 👈 frontend will show this
-            "download_url": "/download/" + temp_tif.name.split("/")[-1]
+            "risk_map": np.nan_to_num(downsampled).tolist(),   # ← Fixed key
+            "stats": stats,
+            "image_file": img_filename
         }
 
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        print(f"❌ Error: {e}")
+        return {"error": str(e)}
