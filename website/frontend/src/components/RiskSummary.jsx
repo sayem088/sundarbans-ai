@@ -6,41 +6,35 @@ export default function RiskSummary({ stats }) {
 
   const c = stats.classification;
 
+  const items = [
+    { label: "Low", value: c.low, color: "bg-emerald-500" },
+    { label: "Medium", value: c.medium, color: "bg-yellow-500" },
+    { label: "High", value: c.high, color: "bg-red-500" },
+  ];
+
   return (
-    <div className="bg-gradient-to-br from-zinc-950 to-black border border-emerald-800/40 rounded-3xl p-10 flex flex-col justify-center">
-      <p className="text-emerald-400/70 text-sm mb-6">RISK BREAKDOWN</p>
-      
-      <div className="space-y-8">
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-emerald-400">Low Risk</span>
-            <span>{(c.low * 100).toFixed(1)}%</span>
-          </div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${c.low * 100}%` }} />
-          </div>
-        </div>
+    <div className="border border-white/10 p-8">
 
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-yellow-400">Medium Risk</span>
-            <span>{(c.medium * 100).toFixed(1)}%</span>
-          </div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-            <div className="h-full bg-yellow-500 rounded-full" style={{ width: `${c.medium * 100}%` }} />
-          </div>
-        </div>
+      <p className="text-xs text-zinc-500 mb-6">RISK BREAKDOWN</p>
 
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-red-400">High Risk</span>
-            <span>{(c.high * 100).toFixed(1)}%</span>
+      <div className="space-y-5">
+        {items.map((item, i) => (
+          <div key={i}>
+            <div className="flex justify-between text-sm mb-1">
+              <span>{item.label}</span>
+              <span>{(item.value * 100).toFixed(1)}%</span>
+            </div>
+
+            <div className="h-1 bg-white/10">
+              <div
+                className={`h-full ${item.color}`}
+                style={{ width: `${item.value * 100}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-            <div className="h-full bg-red-500 rounded-full" style={{ width: `${c.high * 100}%` }} />
-          </div>
-        </div>
+        ))}
       </div>
+
     </div>
   );
 }
